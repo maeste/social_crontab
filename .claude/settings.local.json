@@ -11,7 +11,10 @@
       "Bash(python:*)",
       "Bash(pytest:*)",
       "Bash(python3:*)",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "mcp__serena__find_symbol",
+      "mcp__serena__activate_project",
+      "mcp__serena__search_for_pattern"
     ],
     "deny": [],
     "ask": []

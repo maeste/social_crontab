@@ -46,7 +46,9 @@ class LinkedInAuth:
             Authorization URL for user to visit
         """
         if scope is None:
-            scope = "w_member_social r_liteprofile"
+            # Updated scopes for LinkedIn API v2 (OpenID Connect + Sign In with LinkedIn)
+            # These scopes work with unverified apps during development
+            scope = "openid profile email w_member_social"
 
         params = {
             'response_type': 'code',

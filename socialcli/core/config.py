@@ -90,7 +90,10 @@ class Config:
 
         providers = {}
         for name, provider_data in data.get('providers', {}).items():
-            providers[name] = ProviderConfig(**provider_data)
+            # Filter to only include fields that ProviderConfig accepts
+            valid_fields = {'client_id', 'client_secret', 'access_token', 'refresh_token', 'token_expiry'}
+            filtered_data = {k: v for k, v in provider_data.items() if k in valid_fields}
+            providers[name] = ProviderConfig(**filtered_data)
 
         config = cls(
             providers=providers,
