@@ -6,6 +6,7 @@ Commands:
 - post: Create and publish posts
 - comment: Add comments to posts
 - queue: Manage scheduled posts
+- run-scheduler: Execute scheduled posts at the correct times
 - prune: Remove published posts from storage
 """
 
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from socialcli.core.storage import Storage
 from socialcli.core.config import Config, ProviderConfig
+from socialcli.core.scheduler_daemon import SchedulerDaemon
 from socialcli.utils.parser import PostParser
 from socialcli.providers.linkedin.auth import LinkedInAuth
 from socialcli.providers.linkedin.provider import LinkedInProvider
@@ -426,6 +428,37 @@ def prune(before, after, status, dry_run):
         click.echo(f"Successfully pruned {pruned_count} post(s).")
     else:
         click.echo("No posts were pruned.")
+
+
+@cli.command()
+@click.option('--interval', default=60, help='Check interval in seconds (default: 60)')
+@click.option('--once', is_flag=True, help='Run once and exit (for testing)')
+def run_scheduler(interval, once):
+    """Run the scheduler daemon to execute scheduled posts.
+
+    The scheduler continuously monitors scheduled posts and publishes them
+    at the appropriate times. It runs in the foreground and can be stopped
+    with Ctrl+C.
+
+    Examples:
+        socialcli run-scheduler                    # Run with default 60s interval
+        socialcli run-scheduler --interval 30      # Check every 30 seconds
+        socialcli run-scheduler --once             # Process pending posts once and exit
+    """
+    try:
+        daemon = SchedulerDaemon(check_interval=interval)
+
+        if once:
+            daemon.run_once()
+        else:
+            click.echo(f"Starting scheduler daemon (check interval: {interval}s)")
+            click.echo("Press Ctrl+C to stop")
+            daemon.run()
+    except KeyboardInterrupt:
+        click.echo("\nScheduler stopped by user")
+    except Exception as e:
+        click.echo(f"Error running scheduler: {e}", err=True)
+        sys.exit(1)
 
 
 if __name__ == '__main__':

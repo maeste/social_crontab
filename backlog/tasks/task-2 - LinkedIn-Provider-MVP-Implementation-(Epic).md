@@ -4,7 +4,7 @@ title: LinkedIn Provider MVP Implementation (Epic)
 status: To Do
 assignee: []
 created_date: '2025-10-20 18:37'
-updated_date: '2025-10-21 17:26'
+updated_date: '2025-10-21 18:06'
 labels: []
 dependencies: []
 ---
@@ -27,7 +27,7 @@ Implement complete LinkedIn provider as the first reference implementation of th
 - [x] #8 Media upload support is working (task-10)
 - [x] #9 CLI framework with all commands is functional (task-11)
 - [x] #10 Post file parser handles markdown with front matter (task-12)
-- [ ] #11 Scheduler system for delayed posts is working (task-13)
+- [x] #11 Scheduler system for delayed posts is working (task-13)
 - [x] #12 All CLI commands (login, post, queue, comment) are implemented (task-14)
 - [ ] #13 Integration tests pass and documentation is complete (task-15)
 <!-- AC:END -->
