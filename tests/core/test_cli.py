@@ -2,6 +2,7 @@
 
 import pytest
 from click.testing import CliRunner
+from unittest.mock import patch, Mock
 from socialcli.core.cli import cli
 
 
@@ -56,17 +57,20 @@ class TestLoginCommand:
         assert result.exit_code == 0
         assert 'Authenticate with a social provider' in result.output
 
-    def test_login_default_provider(self, runner):
+    def test_login_default_provider(self, runner, mock_home, mock_linkedin_auth, mock_linkedin_provider):
         """Test login with default provider (linkedin)."""
-        result = runner.invoke(cli, ['login'])
-        assert result.exit_code == 0
-        assert 'linkedin' in result.output.lower()
+        with patch('socialcli.core.cli.LinkedInAuth', return_value=mock_linkedin_auth):
+            with patch('socialcli.core.cli.LinkedInProvider', return_value=mock_linkedin_provider):
+                result = runner.invoke(cli, ['login'])
+                assert result.exit_code == 0
+                assert 'authenticated' in result.output.lower() or 'logged in' in result.output.lower()
 
-    def test_login_custom_provider(self, runner):
-        """Test login with custom provider."""
+    def test_login_custom_provider(self, runner, mock_home):
+        """Test login with custom provider that is not implemented."""
         result = runner.invoke(cli, ['login', '--provider', 'twitter'])
-        assert result.exit_code == 0
-        assert 'twitter' in result.output.lower()
+        # Should fail because twitter is not implemented
+        assert result.exit_code != 0
+        assert 'not yet implemented' in result.output.lower() or 'not configured' in result.output.lower()
 
     def test_login_help_shows_provider_option(self, runner):
         """Test that login help shows provider option."""
@@ -90,17 +94,20 @@ class TestPostCommand:
         assert result.exit_code != 0
         assert 'Missing option' in result.output or 'required' in result.output.lower()
 
-    def test_post_with_file(self, runner):
+    def test_post_with_file(self, runner, mock_home, sample_post_file, mock_linkedin_auth, mock_linkedin_provider):
         """Test post command with file option."""
-        result = runner.invoke(cli, ['post', '--file', 'test.md'])
-        assert result.exit_code == 0
-        assert 'test.md' in result.output
+        with patch('socialcli.core.cli.LinkedInAuth', return_value=mock_linkedin_auth):
+            with patch('socialcli.core.cli.LinkedInProvider', return_value=mock_linkedin_provider):
+                result = runner.invoke(cli, ['post', '--file', str(sample_post_file)])
+                assert result.exit_code == 0
+                assert 'posted' in result.output.lower() or 'published' in result.output.lower() or 'success' in result.output.lower()
 
-    def test_post_with_provider(self, runner):
-        """Test post command with custom provider."""
-        result = runner.invoke(cli, ['post', '--file', 'test.md', '--provider', 'twitter'])
-        assert result.exit_code == 0
-        assert 'twitter' in result.output.lower()
+    def test_post_with_provider(self, runner, mock_home, sample_post_file):
+        """Test post command with custom provider that is not implemented."""
+        result = runner.invoke(cli, ['post', '--file', str(sample_post_file), '--provider', 'twitter'])
+        # Should fail because twitter is not configured or not authenticated
+        assert result.exit_code != 0
+        assert 'not configured' in result.output.lower() or 'not yet implemented' in result.output.lower() or 'not authenticated' in result.output.lower()
 
     def test_post_help_shows_options(self, runner):
         """Test that post help shows file and provider options."""
@@ -134,17 +141,18 @@ class TestCommentCommand:
         result = runner.invoke(cli, ['comment', '--provider', 'linkedin', '--target-id', '123'])
         assert result.exit_code != 0
 
-    def test_comment_with_all_options(self, runner):
+    def test_comment_with_all_options(self, runner, mock_home, mock_linkedin_auth, mock_linkedin_provider):
         """Test comment command with all required options."""
-        result = runner.invoke(cli, [
-            'comment',
-            '--provider', 'linkedin',
-            '--target-id', '12345',
-            '--text', 'Great post!'
-        ])
-        assert result.exit_code == 0
-        assert 'linkedin' in result.output.lower()
-        assert '12345' in result.output
+        with patch('socialcli.core.cli.LinkedInAuth', return_value=mock_linkedin_auth):
+            with patch('socialcli.core.cli.LinkedInProvider', return_value=mock_linkedin_provider):
+                result = runner.invoke(cli, [
+                    'comment',
+                    '--provider', 'linkedin',
+                    '--target-id', 'urn:li:share:12345',
+                    '--text', 'Great post!'
+                ])
+                assert result.exit_code == 0
+                assert 'comment' in result.output.lower() or 'success' in result.output.lower()
 
 
 class TestQueueCommand:

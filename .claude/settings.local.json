@@ -9,7 +9,9 @@
       "mcp__serena__get_symbols_overview",
       "mcp__context7__get-library-docs",
       "Bash(python:*)",
-      "Bash(pytest:*)"
+      "Bash(pytest:*)",
+      "Bash(python3:*)",
+      "Bash(source:*)"
     ],
     "deny": [],
     "ask": []

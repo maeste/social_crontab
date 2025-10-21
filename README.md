@@ -60,12 +60,113 @@ socialcli login --provider linkedin
 # Post from a markdown file
 socialcli post --file post.md --provider linkedin
 
+# Schedule a post for later
+socialcli post --file scheduled_post.md --schedule "2025-12-25T09:00:00"
+
 # Add a comment to a post
 socialcli comment --provider linkedin --target-id POST_ID --text "Great post!"
 
 # List scheduled posts
 socialcli queue --list
+
+# Remove old completed posts from queue
+socialcli prune --before 2025-01-01 --status completed
 ```
+
+## Commands Reference
+
+### `socialcli login`
+
+Authenticate with a social media provider using OAuth 2.0.
+
+```bash
+# Login with default provider (LinkedIn)
+socialcli login
+
+# Login with specific provider
+socialcli login --provider linkedin
+```
+
+**Options:**
+- `--provider TEXT`: Social provider to authenticate with (default: linkedin)
+
+### `socialcli post`
+
+Create and publish a post or schedule it for later.
+
+```bash
+# Post immediately
+socialcli post --file my_post.md
+
+# Post with specific provider
+socialcli post --file my_post.md --provider linkedin
+
+# Schedule for later (if schedule field in front matter)
+socialcli post --file scheduled_post.md
+```
+
+**Options:**
+- `--file PATH`: Path to markdown file containing the post (required)
+- `--provider TEXT`: Provider to use (default: from config or linkedin)
+
+### `socialcli comment`
+
+Add a comment to an existing post.
+
+```bash
+# Add a comment
+socialcli comment --provider linkedin --target-id POST_ID --text "Great insights!"
+```
+
+**Options:**
+- `--provider TEXT`: Provider name (required)
+- `--target-id TEXT`: ID of the post to comment on (required)
+- `--text TEXT`: Comment text (required)
+
+### `socialcli queue`
+
+View and manage scheduled posts.
+
+```bash
+# List all scheduled posts
+socialcli queue --list
+
+# View queue without options (same as --list)
+socialcli queue
+```
+
+**Options:**
+- `--list`: Display all scheduled posts
+
+### `socialcli prune`
+
+Remove old or completed posts from the queue.
+
+```bash
+# Dry run to see what would be deleted
+socialcli prune --dry-run
+
+# Delete posts before a specific date
+socialcli prune --before 2025-01-01
+
+# Delete posts after a specific date
+socialcli prune --after 2024-12-01
+
+# Delete posts within a date range
+socialcli prune --after 2024-12-01 --before 2025-01-01
+
+# Delete only completed posts
+socialcli prune --status completed --before 2025-01-01
+
+# Delete only failed posts
+socialcli prune --status failed
+```
+
+**Options:**
+- `--before DATE`: Delete posts scheduled before this date (YYYY-MM-DD)
+- `--after DATE`: Delete posts scheduled after this date (YYYY-MM-DD)
+- `--status TEXT`: Filter by status (pending, completed, failed)
+- `--dry-run`: Show what would be deleted without actually deleting
 
 ## Post File Format
 
