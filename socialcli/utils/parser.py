@@ -78,25 +78,26 @@ class PostParser:
         """
         return self.metadata.get('provider')
 
-    def get_schedule(self) -> Optional[datetime]:
+    def get_schedule(self) -> Optional[str]:
         """Get schedule time from metadata.
 
         Returns:
-            Datetime object if schedule specified, None otherwise
+            ISO format datetime string if schedule specified, None otherwise
         """
         schedule = self.metadata.get('schedule')
         if schedule is None:
             return None
 
         if isinstance(schedule, datetime):
-            return schedule
+            return schedule.isoformat()
 
         if isinstance(schedule, str):
-            # Try parsing ISO format
+            # Validate ISO format
             try:
-                return datetime.fromisoformat(schedule)
+                datetime.fromisoformat(schedule)
+                return schedule
             except ValueError:
-                raise ValueError(f"Invalid schedule format: {schedule}")
+                raise ValueError(f"Invalid schedule format: {schedule}. Use ISO format (YYYY-MM-DDTHH:MM:SS)")
 
         return None
 
@@ -122,3 +123,41 @@ class PostParser:
             'content': self.get_content(),
             'metadata': self.metadata
         }
+
+    def has_front_matter(self) -> bool:
+        """Check if post has front matter.
+
+        Returns:
+            True if front matter exists, False otherwise
+        """
+        return bool(self.metadata)
+
+    def validate(self) -> bool:
+        """Validate parsed post data.
+
+        Returns:
+            True if valid, False otherwise
+
+        Raises:
+            ValueError: If content is empty or schedule format is invalid
+        """
+        if not self.content:
+            raise ValueError("Post content cannot be empty")
+
+        # Validate schedule if present
+        if self.metadata.get('schedule'):
+            self.get_schedule()  # This will raise ValueError if invalid
+
+        return True
+
+    def get_metadata_field(self, field: str, default: Any = None) -> Any:
+        """Get a custom metadata field.
+
+        Args:
+            field: Field name
+            default: Default value if field not found
+
+        Returns:
+            Field value or default
+        """
+        return self.metadata.get(field, default)

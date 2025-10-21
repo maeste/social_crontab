@@ -5,7 +5,8 @@
       "Bash(backlog task create:*)",
       "Bash(backlog task list:*)",
       "Bash(backlog task:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "mcp__serena__get_symbols_overview"
     ],
     "deny": [],
     "ask": []
