@@ -4,6 +4,8 @@ Implements the SocialProvider interface for LinkedIn.
 """
 
 from typing import Optional, Dict, Any
+import os
+import mimetypes
 import requests
 
 from socialcli.providers.base import (
@@ -129,13 +131,19 @@ class LinkedInProvider(SocialProvider):
         }
 
         # Add media if provided
+        # LinkedIn REST API supports media through content field
         if 'media_ids' in kwargs and kwargs['media_ids']:
-            post_data["content"] = {
-                "media": {
-                    "title": content[:100],  # Use first 100 chars as title
-                    "id": kwargs['media_ids'][0]  # LinkedIn REST API supports single media
+            media_ids = kwargs['media_ids'] if isinstance(kwargs['media_ids'], list) else [kwargs['media_ids']]
+
+            if media_ids:
+                # Use first media ID - LinkedIn's REST API posts endpoint
+                # supports single media attachment
+                post_data["content"] = {
+                    "media": {
+                        "title": content[:100] if content else "Media Post",  # Use first 100 chars as title
+                        "id": media_ids[0]  # Media asset URN
+                    }
                 }
-            }
 
         try:
             response = self.client.post(
@@ -270,26 +278,75 @@ class LinkedInProvider(SocialProvider):
         except Exception as e:
             raise RepostError(f"Unexpected error creating repost: {str(e)}")
 
-    def upload_media(self, file_path: str) -> str:
-        """Upload image to LinkedIn using the client.
+    def _detect_media_type(self, file_path: str) -> str:
+        """Detect media type from file path.
 
         Args:
-            file_path: Path to image file
+            file_path: Path to media file
+
+        Returns:
+            Media type: 'image' or 'video'
+
+        Raises:
+            UploadError: If file type is unsupported
+        """
+        if not os.path.exists(file_path):
+            raise UploadError(f"File not found: {file_path}")
+
+        # Get MIME type
+        mime_type, _ = mimetypes.guess_type(file_path)
+
+        if mime_type is None:
+            # Fallback to extension check
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']:
+                return 'image'
+            elif ext in ['.mp4', '.mov', '.avi', '.wmv', '.flv', '.webm', '.mkv']:
+                return 'video'
+            else:
+                raise UploadError(f"Unsupported file type: {ext}")
+
+        # Check MIME type
+        if mime_type.startswith('image/'):
+            return 'image'
+        elif mime_type.startswith('video/'):
+            return 'video'
+        else:
+            raise UploadError(f"Unsupported media type: {mime_type}")
+
+    def upload_media(self, file_path: str) -> str:
+        """Upload image or video to LinkedIn using the client.
+
+        Supports images (jpg, png, gif) and videos (mp4, mov).
+        Uses LinkedIn's asset registration API with appropriate recipes
+        for each media type.
+
+        Args:
+            file_path: Path to media file (image or video)
 
         Returns:
             Media URN for use in posts
 
         Raises:
             AuthenticationError: If not authenticated
-            UploadError: If upload fails
+            UploadError: If upload fails or file type is unsupported
         """
         if not self._person_urn:
             self.login()
 
+        # Detect media type
+        media_type = self._detect_media_type(file_path)
+
+        # Select appropriate recipe based on media type
+        if media_type == 'image':
+            recipe = "urn:li:digitalmediaRecipe:feedshare-image"
+        else:  # video
+            recipe = "urn:li:digitalmediaRecipe:feedshare-video"
+
         # Register upload using v2 API (assets endpoint still uses v2)
         register_data = {
             "registerUploadRequest": {
-                "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                "recipes": [recipe],
                 "owner": self._person_urn,
                 "serviceRelationships": [
                     {
@@ -317,11 +374,25 @@ class LinkedInProvider(SocialProvider):
             asset_urn = upload_info['value']['asset']
 
             # Upload file directly to LinkedIn's upload URL
+            # Get file size for Content-Length header
+            file_size = os.path.getsize(file_path)
+
             with open(file_path, 'rb') as f:
+                headers = {
+                    'Authorization': f'Bearer {self.client.access_token}',
+                    'Content-Length': str(file_size)
+                }
+
+                # Videos may require additional headers
+                if media_type == 'video':
+                    mime_type, _ = mimetypes.guess_type(file_path)
+                    if mime_type:
+                        headers['Content-Type'] = mime_type
+
                 upload_response = requests.put(
                     upload_url,
                     data=f,
-                    headers={'Authorization': f'Bearer {self.client.access_token}'}
+                    headers=headers
                 )
                 upload_response.raise_for_status()
 
@@ -329,6 +400,10 @@ class LinkedInProvider(SocialProvider):
 
         except AuthenticationError:
             raise
+        except FileNotFoundError as e:
+            raise UploadError(f"File not found: {str(e)}")
+        except requests.HTTPError as e:
+            raise UploadError(f"Upload failed: {str(e)}")
         except Exception as e:
             raise UploadError(f"Failed to upload media: {str(e)}")
 

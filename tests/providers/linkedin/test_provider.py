@@ -283,12 +283,19 @@ class TestLinkedInProviderRepost:
 class TestLinkedInProviderUploadMedia:
     """Test media upload functionality."""
 
+    @patch('mimetypes.guess_type')
+    @patch('os.path.exists')
+    @patch('os.path.getsize')
     @patch('socialcli.providers.linkedin.provider.LinkedInProvider.login')
     @patch('socialcli.providers.linkedin.client.LinkedInAPIClient.post')
     @patch('builtins.open', create=True)
     @patch('requests.put')
-    def test_upload_media_success(self, mock_put, mock_open, mock_client_post, mock_login):
-        """Test successful media upload."""
+    def test_upload_image_success(self, mock_put, mock_open, mock_client_post, mock_login, mock_getsize, mock_exists, mock_guess_type):
+        """Test successful image upload."""
+        mock_exists.return_value = True
+        mock_getsize.return_value = 1024 * 100  # 100KB
+        mock_guess_type.return_value = ('image/jpeg', None)
+
         # Mock register upload response
         mock_register_response = Mock()
         mock_register_response.json.return_value = {
@@ -319,19 +326,166 @@ class TestLinkedInProviderUploadMedia:
 
         assert result == 'urn:li:digitalmediaAsset:123456'
         mock_client_post.assert_called_once()
+
+        # Verify image recipe was used
+        call_args = mock_client_post.call_args
+        register_data = call_args[1]['json']
+        assert register_data['registerUploadRequest']['recipes'][0] == 'urn:li:digitalmediaRecipe:feedshare-image'
+
         mock_put.assert_called_once()
         mock_open.assert_called_once_with('/path/to/image.jpg', 'rb')
 
+    @patch('mimetypes.guess_type')
+    @patch('os.path.exists')
+    @patch('os.path.getsize')
     @patch('socialcli.providers.linkedin.provider.LinkedInProvider.login')
     @patch('socialcli.providers.linkedin.client.LinkedInAPIClient.post')
-    def test_upload_media_failure_raises_error(self, mock_client_post, mock_login):
-        """Test media upload failure raises UploadError."""
-        mock_client_post.side_effect = Exception("Upload failed")
+    @patch('builtins.open', create=True)
+    @patch('requests.put')
+    def test_upload_video_success(self, mock_put, mock_open, mock_client_post, mock_login, mock_getsize, mock_exists, mock_guess_type):
+        """Test successful video upload."""
+        mock_exists.return_value = True
+        mock_getsize.return_value = 1024 * 1024 * 5  # 5MB
+        mock_guess_type.return_value = ('video/mp4', None)
+
+        # Mock register upload response
+        mock_register_response = Mock()
+        mock_register_response.json.return_value = {
+            'value': {
+                'uploadMechanism': {
+                    'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest': {
+                        'uploadUrl': 'https://upload.linkedin.com/video123'
+                    }
+                },
+                'asset': 'urn:li:digitalmediaAsset:video789'
+            }
+        }
+        mock_client_post.return_value = mock_register_response
+
+        # Mock file upload response
+        mock_upload_response = Mock()
+        mock_upload_response.raise_for_status = Mock()
+        mock_put.return_value = mock_upload_response
+
+        # Mock file
+        mock_file = Mock()
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        provider = LinkedInProvider(access_token="test_token")
+        provider._person_urn = "urn:li:person:test_user"
+
+        result = provider.upload_media("/path/to/video.mp4")
+
+        assert result == 'urn:li:digitalmediaAsset:video789'
+
+        # Verify video recipe was used
+        call_args = mock_client_post.call_args
+        register_data = call_args[1]['json']
+        assert register_data['registerUploadRequest']['recipes'][0] == 'urn:li:digitalmediaRecipe:feedshare-video'
+
+    @patch('os.path.exists')
+    def test_detect_media_type_image(self, mock_exists):
+        """Test media type detection for images."""
+        mock_exists.return_value = True
+
+        provider = LinkedInProvider(access_token="test_token")
+
+        # Test various image extensions
+        assert provider._detect_media_type("/path/to/file.jpg") == 'image'
+        assert provider._detect_media_type("/path/to/file.jpeg") == 'image'
+        assert provider._detect_media_type("/path/to/file.png") == 'image'
+        assert provider._detect_media_type("/path/to/file.gif") == 'image'
+        assert provider._detect_media_type("/path/to/file.webp") == 'image'
+
+    @patch('os.path.exists')
+    def test_detect_media_type_video(self, mock_exists):
+        """Test media type detection for videos."""
+        mock_exists.return_value = True
+
+        provider = LinkedInProvider(access_token="test_token")
+
+        # Test various video extensions
+        assert provider._detect_media_type("/path/to/file.mp4") == 'video'
+        assert provider._detect_media_type("/path/to/file.mov") == 'video'
+        assert provider._detect_media_type("/path/to/file.avi") == 'video'
+        assert provider._detect_media_type("/path/to/file.webm") == 'video'
+
+    @patch('mimetypes.guess_type')
+    @patch('os.path.exists')
+    def test_detect_media_type_unsupported(self, mock_exists, mock_guess_type):
+        """Test media type detection for unsupported files."""
+        mock_exists.return_value = True
+        mock_guess_type.return_value = ('text/plain', None)
+
+        provider = LinkedInProvider(access_token="test_token")
+
+        with pytest.raises(UploadError, match="Unsupported media type"):
+            provider._detect_media_type("/path/to/file.txt")
+
+        mock_guess_type.return_value = ('application/pdf', None)
+        with pytest.raises(UploadError, match="Unsupported media type"):
+            provider._detect_media_type("/path/to/file.pdf")
+
+    def test_detect_media_type_file_not_found(self):
+        """Test media type detection for non-existent file."""
+        provider = LinkedInProvider(access_token="test_token")
+
+        with pytest.raises(UploadError, match="File not found"):
+            provider._detect_media_type("/path/to/nonexistent.jpg")
+
+    @patch('os.path.exists')
+    @patch('socialcli.providers.linkedin.provider.LinkedInProvider.login')
+    @patch('socialcli.providers.linkedin.client.LinkedInAPIClient.post')
+    def test_upload_media_api_failure_raises_error(self, mock_client_post, mock_login, mock_exists):
+        """Test media upload API failure raises UploadError."""
+        mock_exists.return_value = True
+        mock_client_post.side_effect = Exception("API error")
 
         provider = LinkedInProvider(access_token="test_token")
         provider._person_urn = "urn:li:person:test_user"
 
         with pytest.raises(UploadError, match="Failed to upload media"):
+            provider.upload_media("/path/to/image.jpg")
+
+    @patch('mimetypes.guess_type')
+    @patch('os.path.exists')
+    @patch('os.path.getsize')
+    @patch('socialcli.providers.linkedin.provider.LinkedInProvider.login')
+    @patch('socialcli.providers.linkedin.client.LinkedInAPIClient.post')
+    @patch('builtins.open', create=True)
+    @patch('requests.put')
+    def test_upload_media_http_error(self, mock_put, mock_open, mock_client_post, mock_login, mock_getsize, mock_exists, mock_guess_type):
+        """Test media upload HTTP error raises UploadError."""
+        mock_exists.return_value = True
+        mock_getsize.return_value = 1024
+        mock_guess_type.return_value = ('image/jpeg', None)
+
+        # Mock successful registration
+        mock_register_response = Mock()
+        mock_register_response.json.return_value = {
+            'value': {
+                'uploadMechanism': {
+                    'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest': {
+                        'uploadUrl': 'https://upload.linkedin.com/abc123'
+                    }
+                },
+                'asset': 'urn:li:digitalmediaAsset:123456'
+            }
+        }
+        mock_client_post.return_value = mock_register_response
+
+        # Mock file upload failure
+        mock_upload_response = Mock()
+        mock_upload_response.raise_for_status.side_effect = requests.HTTPError("Upload failed")
+        mock_put.return_value = mock_upload_response
+
+        mock_file = Mock()
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        provider = LinkedInProvider(access_token="test_token")
+        provider._person_urn = "urn:li:person:test_user"
+
+        with pytest.raises(UploadError, match="Upload failed"):
             provider.upload_media("/path/to/image.jpg")
 
 

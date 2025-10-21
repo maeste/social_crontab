@@ -6,7 +6,9 @@
       "Bash(backlog task list:*)",
       "Bash(backlog task:*)",
       "Bash(mkdir:*)",
-      "mcp__serena__get_symbols_overview"
+      "mcp__serena__get_symbols_overview",
+      "mcp__context7__get-library-docs",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []
