@@ -324,7 +324,8 @@ class TestLinkedInProviderUploadMedia:
 
         result = provider.upload_media("/path/to/image.jpg")
 
-        assert result == 'urn:li:digitalmediaAsset:123456'
+        # Implementation converts digitalmediaAsset URN to image URN for posts
+        assert result == 'urn:li:image:123456'
         mock_client_post.assert_called_once()
 
         # Verify image recipe was used
@@ -376,7 +377,8 @@ class TestLinkedInProviderUploadMedia:
 
         result = provider.upload_media("/path/to/video.mp4")
 
-        assert result == 'urn:li:digitalmediaAsset:video789'
+        # Implementation converts digitalmediaAsset URN to video URN for posts
+        assert result == 'urn:li:video:video789'
 
         # Verify video recipe was used
         call_args = mock_client_post.call_args

@@ -192,7 +192,7 @@ class LinkedInProvider(SocialProvider):
             raise
         except requests.HTTPError as e:
             logger.error(f"HTTP error: {e}")
-            logger.error(f"Response: {e.response.text if hasattr(e, 'response') else 'N/A'}")
+            logger.error(f"Response: {e.response.text if hasattr(e, 'response') and e.response else 'N/A'}")
             raise PostError(f"Failed to create post: {str(e)}")
         except Exception as e:
             logger.error(f"Unexpected error: {e}", exc_info=True)

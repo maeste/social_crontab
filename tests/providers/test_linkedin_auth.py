@@ -64,7 +64,9 @@ class TestAuthorizationURL:
         assert "client_id=test_client_id" in url
         assert "redirect_uri=http" in url
         assert "w_member_social" in url
-        assert "r_liteprofile" in url
+        # Implementation uses OpenID Connect scopes instead of deprecated r_liteprofile
+        assert "openid" in url
+        assert "profile" in url
         assert "response_type=code" in url
 
     def test_get_authorization_url_custom_scopes(self, auth_handler):
@@ -333,9 +335,11 @@ class TestOAuthScopes:
         """Test that default scopes include required LinkedIn scopes."""
         url = auth_handler.get_authorization_url()
 
-        # Required scopes from spec
+        # Required scopes: OpenID Connect + LinkedIn posting
         assert "w_member_social" in url
-        assert "r_liteprofile" in url
+        assert "openid" in url
+        assert "profile" in url
+        assert "email" in url
 
     def test_custom_scopes_override_default(self, auth_handler):
         """Test that custom scopes override defaults."""

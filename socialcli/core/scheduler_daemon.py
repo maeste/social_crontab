@@ -144,11 +144,16 @@ class SchedulerDaemon:
             kwargs = {}
             if media_ids:
                 kwargs['media_ids'] = media_ids
-            
+
             result = provider.post(
                 content=parser.content,
                 **kwargs
             )
+
+            # Store URN for comment resolution (Task 19)
+            if 'id' in result:
+                self.storage.update_scheduled_post(post_id, urn=result['id'])
+                logger.info(f"Post {post_id} URN stored: {result['id']}")
 
             logger.info(f"Post {post_id} published successfully: {result.get('url', 'N/A')}")
             return True
@@ -157,11 +162,14 @@ class SchedulerDaemon:
             logger.error(f"Failed to execute post {post_id}: {e}", exc_info=True)
             return False
 
-    def _process_pending_posts(self):
-        """Check for and process all pending posts that are due."""
+    def _process_posts(self):
+        """Check for and process all pending posts (not comments) that are due."""
         try:
-            # Get all pending posts
-            pending_posts = self.storage.get_all_scheduled_posts(status='pending')
+            # Get all pending items
+            pending_items = self.storage.get_all_scheduled_posts(status='pending')
+
+            # Filter for posts only (not comments)
+            pending_posts = [item for item in pending_items if item.get('type') == 'post']
 
             if not pending_posts:
                 return
@@ -192,6 +200,168 @@ class SchedulerDaemon:
 
         except Exception as e:
             logger.error(f"Error processing pending posts: {e}", exc_info=True)
+
+    def _process_comments(self):
+        """Check for and process all pending comments that are due.
+
+        Validates that parent post is published before attempting to post comment.
+        Comments are deferred if parent is not yet published.
+        """
+        try:
+            # Get pending comments that are due
+            pending_comments = self.storage.get_pending_comments()
+
+            if not pending_comments:
+                return
+
+            logger.info(f"Found {len(pending_comments)} comment(s) due for processing")
+
+            # Process each comment
+            for comment in pending_comments:
+                comment_id = comment['id']
+                parent_uuid = comment.get('parent_uuid')
+
+                if not parent_uuid:
+                    logger.error(f"Comment {comment_id} has no parent_uuid")
+                    self.storage.update_scheduled_post(
+                        comment_id,
+                        status='failed',
+                        blocked_reason='No parent_uuid specified'
+                    )
+                    continue
+
+                # Get parent post
+                parent = self.storage.get_post_by_uuid(parent_uuid)
+
+                if not parent:
+                    logger.error(f"Parent post {parent_uuid} not found for comment {comment_id}")
+                    self.storage.update_scheduled_post(
+                        comment_id,
+                        status='failed',
+                        blocked_reason=f'Parent post {parent_uuid} not found'
+                    )
+                    continue
+
+                # Check parent status
+                parent_status = parent.get('status')
+                parent_id = parent.get('id')
+
+                if parent_status == 'published':
+                    # Parent is published - ready to post comment
+                    logger.info(
+                        f"Comment {comment_id} ready to post (parent post {parent_id} published)"
+                    )
+                    success = self._execute_comment(comment, parent)
+
+                    # Update status based on result
+                    new_status = 'published' if success else 'failed'
+                    self.storage.update_scheduled_post(comment_id, status=new_status)
+                    logger.info(f"Comment {comment_id} status updated to: {new_status}")
+
+                elif parent_status == 'failed':
+                    # Parent failed - fail this comment too
+                    logger.warning(
+                        f"Failing comment {comment_id} - parent post {parent_id} failed to publish"
+                    )
+                    self.storage.update_scheduled_post(
+                        comment_id,
+                        status='failed',
+                        blocked_reason=f'Parent post {parent_id} failed to publish'
+                    )
+
+                else:
+                    # Parent not yet published (pending or other status) - defer
+                    logger.info(
+                        f"Deferring comment {comment_id} - parent post {parent_id} "
+                        f"not yet published (status: {parent_status})"
+                    )
+                    # Leave as pending - will be retried on next scheduler run
+
+        except Exception as e:
+            logger.error(f"Error processing pending comments: {e}", exc_info=True)
+
+    def _execute_comment(self, comment_data: dict, parent_data: dict) -> bool:
+        """Execute a single scheduled comment.
+
+        Retrieves parent post URN and posts comment using provider.
+
+        Args:
+            comment_data: Comment dictionary from storage
+            parent_data: Parent post dictionary from storage
+
+        Returns:
+            True if comment was successful, False otherwise
+        """
+        comment_id = comment_data['id']
+        parent_id = parent_data['id']
+        file_path = comment_data['file_path']
+        provider_name = comment_data['provider']
+        scheduled_time = comment_data.get('publish_at', 'N/A')
+
+        try:
+            # Validate parent URN exists
+            parent_urn = parent_data.get('urn')
+            if not parent_urn:
+                error_msg = f"Parent post {parent_id} has no URN available"
+                logger.error(
+                    f"Failed to post comment {comment_id} "
+                    f"(parent: {parent_id}, scheduled: {scheduled_time}): {error_msg}"
+                )
+                self.storage.update_scheduled_post(
+                    comment_id,
+                    blocked_reason=error_msg
+                )
+                return False
+
+            logger.info(f"Executing comment {comment_id} on parent post {parent_id} (URN: {parent_urn})")
+
+            # Read and parse the comment file
+            comment_path = Path(file_path)
+            if not comment_path.exists():
+                error_msg = f"Comment file not found: {file_path}"
+                logger.error(
+                    f"Failed to post comment {comment_id} "
+                    f"(parent: {parent_id}, scheduled: {scheduled_time}): {error_msg}"
+                )
+                return False
+
+            # Parse the comment file
+            parser = PostParser(file_path)
+            comment_text = parser.content
+
+            # Initialize provider
+            provider = self._get_provider(provider_name)
+
+            # Post the comment
+            result = provider.comment(
+                target_id=parent_urn,
+                text=comment_text
+            )
+
+            # Store comment URN if available
+            if 'id' in result:
+                self.storage.update_scheduled_post(comment_id, urn=result['id'])
+                logger.info(f"Comment {comment_id} URN stored: {result['id']}")
+
+            logger.info(f"Comment {comment_id} posted successfully on post {parent_id}")
+            return True
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(
+                f"Failed to post comment {comment_id} "
+                f"(parent: {parent_id}, scheduled: {scheduled_time}): {error_msg}",
+                exc_info=True
+            )
+            return False
+
+    def _process_pending_posts(self):
+        """Check for and process all pending posts and comments that are due.
+
+        Orchestrates both post and comment processing.
+        """
+        self._process_posts()
+        self._process_comments()
 
     def run(self):
         """Run the scheduler daemon in a continuous loop.
