@@ -73,12 +73,12 @@ class SchedulerDaemon:
         """
         if provider_name.lower() == 'linkedin':
             from socialcli.providers.linkedin.provider import LinkedInProvider
-            
+
             # Get provider config
             provider_config = self.config.get_provider_config('linkedin')
             if not provider_config:
                 raise ValueError("LinkedIn provider not configured")
-            
+
             # Create provider with credentials from config
             return LinkedInProvider(
                 client_id=provider_config.client_id,

@@ -73,6 +73,137 @@ socialcli queue --list
 socialcli prune --before 2025-01-01 --status completed
 ```
 
+## Shell Completion
+
+SocialCLI supports tab completion for Bash, Zsh, Fish, and PowerShell shells. Enable it to get command, option, and flag completions.
+
+### Quick Setup
+
+**Bash:**
+```bash
+socialcli completion bash > ~/.socialcli-completion.bash
+echo 'source ~/.socialcli-completion.bash' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**Zsh:**
+```zsh
+socialcli completion zsh > ~/.socialcli-completion.zsh
+echo 'source ~/.socialcli-completion.zsh' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Fish:**
+```fish
+socialcli completion fish > ~/.config/fish/completions/socialcli.fish
+```
+
+For detailed installation instructions, troubleshooting, and advanced usage, see [docs/COMPLETION.md](docs/COMPLETION.md).
+
+## Claude Code Skill
+
+SocialCLI includes a Claude Code skill that provides an interactive workflow for creating engaging LinkedIn posts with optional comment scheduling. The skill helps with content strategy, writing, formatting, and scheduling - all through a conversational interface.
+
+### Features
+
+- 📝 **Content Creation**: Interactive workflow from ideation to final post
+- 💬 **Comment Scheduling**: Schedule one or more comments to boost engagement
+- ⏰ **Flexible Timing**: Support for various time formats (5m, 30 minutes, 2h, etc.)
+- 🎯 **Best Practices**: Built-in LinkedIn optimization and content guidelines
+- 🔄 **Complete Workflow**: From idea to scheduled post and comments
+
+### Installation
+
+The skill is located in `.claude/skills/socialcli-post/`. To use it with Claude Code:
+
+**Option 1: Copy to global skills directory**
+```bash
+# Copy the skill to your global Claude skills directory
+mkdir -p ~/.claude/skills
+cp -r .claude/skills/socialcli-post ~/.claude/skills/
+```
+
+**Option 2: Use from project directory**
+
+Claude Code will automatically detect skills in the project's `.claude/skills/` directory when working in this repository.
+
+### Usage
+
+When using Claude Code, simply ask to create a LinkedIn post:
+
+```
+"I want to create a LinkedIn post"
+```
+
+The skill will guide you through:
+1. **Content Discovery**: Understanding your goals and audience
+2. **Writing**: Crafting engaging content with proper structure
+3. **Optimization**: Applying LinkedIn best practices
+4. **Scheduling**: Setting publish time and metadata
+5. **Comments**: Optional - schedule follow-up comments for engagement
+
+### Comment Scheduling
+
+After creating a post, the skill will ask if you want to schedule comments:
+
+```
+User: "I want to add 2 comments"
+
+Skill guides you through:
+- Comment 1 text and timing (e.g., "30 minutes after")
+- Comment 2 text and timing (e.g., "2 hours after")
+
+Creates:
+- Main post file: ~/posts/linkedin-YYYY-MM-DD-title.md
+- Comment files: ~/posts/comments/comment-YYYY-MM-DD-HH-MM-title.md
+```
+
+**Supported time formats:**
+- Minutes: "5m", "30 minutes"
+- Hours: "1h", "2 hours"
+- Seconds: "300s", "300 seconds"
+
+**Minimum delay:** 5 minutes after the parent post
+
+### Example Workflow
+
+```
+You: "Create a post about Python async programming"
+
+Skill: Asks about:
+  - Target audience
+  - Key points to cover
+  - Links to include
+  - Tone preference
+
+Skill: Presents draft with optimization suggestions
+
+You: "Perfect! Schedule for tomorrow at 2pm"
+
+Skill: Asks about media, visibility, tags
+
+Skill: Creates post and asks about comments
+
+You: "Add 2 comments - one at 30 minutes and one at 2 hours"
+
+Skill:
+  - Creates and schedules main post
+  - Creates and schedules both comments
+  - Shows summary with all scheduled times
+```
+
+### Files Created
+
+**Main posts:** `~/posts/linkedin-YYYY-MM-DD-title.md`
+**Comments:** `~/posts/comments/comment-YYYY-MM-DD-HH-MM-title.md`
+
+Make sure the scheduler daemon is running to publish scheduled posts and comments:
+```bash
+socialcli run-scheduler
+```
+
+For more details, see [.claude/skills/socialcli-post/SKILL.md](.claude/skills/socialcli-post/SKILL.md).
+
 ## Commands Reference
 
 ### `socialcli login`
@@ -167,6 +298,29 @@ socialcli prune --status failed
 - `--after DATE`: Delete posts scheduled after this date (YYYY-MM-DD)
 - `--status TEXT`: Filter by status (pending, completed, failed)
 - `--dry-run`: Show what would be deleted without actually deleting
+
+### `socialcli completion`
+
+Generate shell completion scripts for tab completion support.
+
+```bash
+# Generate bash completion
+socialcli completion bash
+
+# Generate zsh completion
+socialcli completion zsh
+
+# Generate fish completion
+socialcli completion fish
+
+# Generate PowerShell completion
+socialcli completion powershell
+```
+
+**Arguments:**
+- `SHELL`: Shell type (bash, zsh, fish, or powershell)
+
+See [docs/COMPLETION.md](docs/COMPLETION.md) for installation instructions.
 
 ## Post File Format
 

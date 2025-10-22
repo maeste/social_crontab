@@ -8,6 +8,7 @@ Commands:
 - queue: Manage scheduled posts
 - run-scheduler: Execute scheduled posts at the correct times
 - prune: Remove published posts from storage
+- completion: Generate shell completion scripts
 """
 
 import click
@@ -25,6 +26,12 @@ from socialcli.utils.parser import PostParser
 from socialcli.providers.linkedin.auth import LinkedInAuth
 from socialcli.providers.linkedin.provider import LinkedInProvider
 from socialcli.providers.base import AuthenticationError, PostError, CommentError
+
+try:
+    from click.shell_completion import get_completion_class
+    SHELL_COMPLETION_AVAILABLE = True
+except ImportError:
+    SHELL_COMPLETION_AVAILABLE = False
 
 
 # OAuth callback handler
@@ -496,6 +503,46 @@ def run_scheduler(interval, once):
     except Exception as e:
         click.echo(f"Error running scheduler: {e}", err=True)
         sys.exit(1)
+
+
+@cli.command()
+@click.argument('shell', type=click.Choice(['bash', 'zsh', 'fish', 'powershell']))
+def completion(shell):
+    """Generate shell completion script for SHELL.
+
+    Install completion by running:
+
+    \b
+    Bash:
+      socialcli completion bash > ~/.socialcli-completion.bash
+      echo 'source ~/.socialcli-completion.bash' >> ~/.bashrc
+      source ~/.bashrc
+
+    \b
+    Zsh:
+      socialcli completion zsh > ~/.socialcli-completion.zsh
+      echo 'source ~/.socialcli-completion.zsh' >> ~/.zshrc
+      source ~/.zshrc
+
+    \b
+    Fish:
+      socialcli completion fish > ~/.config/fish/completions/socialcli.fish
+
+    See docs/COMPLETION.md for detailed installation instructions.
+    """
+    if not SHELL_COMPLETION_AVAILABLE:
+        click.echo("Error: Shell completion not available in this Click version.", err=True)
+        click.echo("Please upgrade Click: pip install --upgrade click", err=True)
+        sys.exit(1)
+
+    completion_class = get_completion_class(shell)
+    if completion_class is None:
+        click.echo(f"Error: Completion not supported for {shell}", err=True)
+        sys.exit(1)
+
+    # Create completion instance and generate source
+    complete = completion_class(cli, {}, 'socialcli', f'_SOCIALCLI_COMPLETE')
+    click.echo(complete.source())
 
 
 if __name__ == '__main__':
