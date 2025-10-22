@@ -60,7 +60,7 @@ class LinkedInAPIClient:
     """
 
     API_BASE = "https://api.linkedin.com/v2"
-    API_REST_BASE = "https://api.linkedin.com/rest"
+    API_REST_BASE = "https://api.linkedin.com/v2"
 
     # LinkedIn rate limits (conservative defaults)
     DEFAULT_RATE_LIMIT = 100  # requests per minute
@@ -118,7 +118,6 @@ class LinkedInAPIClient:
 
         headers = {
             'Authorization': f'Bearer {self.access_token}',
-            'Content-Type': 'application/json',
             'X-Restli-Protocol-Version': '2.0.0',
             'LinkedIn-Version': '202504'
         }

@@ -17,7 +17,8 @@
       "mcp__serena__search_for_pattern",
       "mcp__serena__list_dir",
       "mcp__serena__replace_symbol_body",
-      "Read(//home/maeste/.claude/skills/socialcli-post/**)"
+      "Read(//home/maeste/.claude/skills/socialcli-post/**)",
+      "mcp__context7__resolve-library-id"
     ],
     "deny": [],
     "ask": []

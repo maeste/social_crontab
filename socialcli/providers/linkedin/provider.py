@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any
 import os
 import mimetypes
 import requests
+from urllib.parse import quote
 
 from socialcli.providers.base import (
     SocialProvider,
@@ -227,8 +228,10 @@ class LinkedInProvider(SocialProvider):
         }
 
         try:
+            # URL-encode the URN for use in the path
+            encoded_urn = quote(target_id, safe='')
             response = self.client.post(
-                "comments",
+                f"socialActions/{encoded_urn}/comments",
                 use_rest_api=True,
                 json=comment_data
             )
