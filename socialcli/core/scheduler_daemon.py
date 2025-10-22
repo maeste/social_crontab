@@ -33,10 +33,22 @@ class SchedulerDaemon:
             storage: Storage instance to use. If None, creates a new one.
             check_interval: How often to check for pending posts (seconds)
         """
+        # Configure logging first with DEBUG level
+        import os
+        log_level = os.environ.get('SOCIALCLI_LOG_LEVEL', 'INFO').upper()
+        logging.basicConfig(
+            level=getattr(logging, log_level, logging.INFO),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler()
+            ],
+            force=True  # Force reconfiguration even if already configured
+        )
+        
         self.storage = storage or Storage()
         self.check_interval = check_interval
         self.running = False
-        self.config = Config()
+        self.config = Config.load(validate=False)
 
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -57,11 +69,22 @@ class SchedulerDaemon:
             Provider instance
 
         Raises:
-            ValueError: If provider is not supported
+            ValueError: If provider is not supported or not configured
         """
         if provider_name.lower() == 'linkedin':
             from socialcli.providers.linkedin.provider import LinkedInProvider
-            return LinkedInProvider(self.config)
+            
+            # Get provider config
+            provider_config = self.config.get_provider_config('linkedin')
+            if not provider_config:
+                raise ValueError("LinkedIn provider not configured")
+            
+            # Create provider with credentials from config
+            return LinkedInProvider(
+                client_id=provider_config.client_id,
+                client_secret=provider_config.client_secret,
+                config=self.config
+            )
         else:
             raise ValueError(f"Unsupported provider: {provider_name}")
 
@@ -89,18 +112,42 @@ class SchedulerDaemon:
 
             # Parse the post file
             parser = PostParser(file_path)
-            parsed = {
-                'content': parser.content,
-                'media': parser.metadata.get('media', [])
-            }
+            media_files = parser.metadata.get('media', [])
 
             # Initialize provider
             provider = self._get_provider(provider_name)
 
-            # Execute the post
+            # Upload media files if present
+            media_ids = []
+            if media_files:
+                logger.info(f"Uploading {len(media_files)} media file(s)")
+                for media_file in media_files:
+                    try:
+                        # Handle relative paths - assume relative to post file directory
+                        media_path = Path(media_file)
+                        if not media_path.is_absolute():
+                            media_path = post_path.parent / media_file
+                        
+                        if not media_path.exists():
+                            logger.warning(f"Media file not found: {media_path}")
+                            continue
+                        
+                        logger.info(f"Uploading media: {media_path}")
+                        media_urn = provider.upload_media(str(media_path))
+                        media_ids.append(media_urn)
+                        logger.info(f"Media uploaded successfully: {media_urn}")
+                    except Exception as e:
+                        logger.error(f"Failed to upload media {media_file}: {e}")
+                        # Continue with other media files
+
+            # Execute the post with uploaded media
+            kwargs = {}
+            if media_ids:
+                kwargs['media_ids'] = media_ids
+            
             result = provider.post(
-                content=parsed['content'],
-                media=parsed.get('media', [])
+                content=parser.content,
+                **kwargs
             )
 
             logger.info(f"Post {post_id} published successfully: {result.get('url', 'N/A')}")

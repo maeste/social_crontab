@@ -116,6 +116,12 @@ class LinkedInProvider(SocialProvider):
         # Allow override for organization posts
         author_urn = kwargs.get('author_urn', self._person_urn)
 
+        # Debug: log content before sending
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Posting content (length: {len(content)} chars)")
+        logger.debug(f"Full content:\n{content}")
+
         # Build post payload for REST API
         post_data = {
             "author": author_urn,
@@ -131,19 +137,34 @@ class LinkedInProvider(SocialProvider):
         }
 
         # Add media if provided
-        # LinkedIn REST API supports media through content field
         if 'media_ids' in kwargs and kwargs['media_ids']:
             media_ids = kwargs['media_ids'] if isinstance(kwargs['media_ids'], list) else [kwargs['media_ids']]
 
             if media_ids:
-                # Use first media ID - LinkedIn's REST API posts endpoint
-                # supports single media attachment
-                post_data["content"] = {
-                    "media": {
-                        "title": content[:100] if content else "Media Post",  # Use first 100 chars as title
-                        "id": media_ids[0]  # Media asset URN
+                num_media = len(media_ids)
+                logger.info(f"Attaching {num_media} media item(s)")
+                
+                if num_media >= 2:
+                    # Multiple images: use multiImage format (2-20 images)
+                    post_data["content"] = {
+                        "multiImage": {
+                            "images": [
+                                {"id": media_id} 
+                                for media_id in media_ids[:20]  # LinkedIn supports up to 20
+                            ]
+                        }
                     }
-                }
+                else:
+                    # Single image: simple media format with just ID
+                    post_data["content"] = {
+                        "media": {
+                            "id": media_ids[0]
+                        }
+                    }
+
+        # Debug: log payload
+        import json
+        logger.debug(f"Request payload:\n{json.dumps(post_data, indent=2, ensure_ascii=False)}")
 
         try:
             response = self.client.post(
@@ -152,6 +173,10 @@ class LinkedInProvider(SocialProvider):
                 json=post_data
             )
 
+            logger.info(f"Response status: {response.status_code}")
+            logger.debug(f"Response headers: {dict(response.headers)}")
+            logger.debug(f"Response body: {response.text}")
+
             # Extract post ID from response headers or body
             result = response.json() if response.text else {}
 
@@ -159,14 +184,18 @@ class LinkedInProvider(SocialProvider):
             post_id = response.headers.get('x-restli-id')
             if post_id:
                 result['id'] = post_id
+                logger.info(f"Post created with ID: {post_id}")
 
             return result
 
         except AuthenticationError:
             raise
         except requests.HTTPError as e:
+            logger.error(f"HTTP error: {e}")
+            logger.error(f"Response: {e.response.text if hasattr(e, 'response') else 'N/A'}")
             raise PostError(f"Failed to create post: {str(e)}")
         except Exception as e:
+            logger.error(f"Unexpected error: {e}", exc_info=True)
             raise PostError(f"Unexpected error creating post: {str(e)}")
 
     def comment(self, target_id: str, text: str) -> Dict[str, Any]:
@@ -325,7 +354,7 @@ class LinkedInProvider(SocialProvider):
             file_path: Path to media file (image or video)
 
         Returns:
-            Media URN for use in posts
+            Media URN for use in posts (image or video URN, not asset URN)
 
         Raises:
             AuthenticationError: If not authenticated
@@ -396,6 +425,18 @@ class LinkedInProvider(SocialProvider):
                 )
                 upload_response.raise_for_status()
 
+            # Convert digitalmediaAsset URN to image/video URN
+            # LinkedIn expects urn:li:image:... or urn:li:video:... for posts
+            # Extract the ID from the asset URN and create the correct type
+            if asset_urn.startswith('urn:li:digitalmediaAsset:'):
+                asset_id = asset_urn.split(':')[-1]
+                if media_type == 'image':
+                    media_urn = f"urn:li:image:{asset_id}"
+                else:
+                    media_urn = f"urn:li:video:{asset_id}"
+                return media_urn
+            
+            # Fallback: return asset URN as-is
             return asset_urn
 
         except AuthenticationError:
@@ -408,23 +449,34 @@ class LinkedInProvider(SocialProvider):
             raise UploadError(f"Failed to upload media: {str(e)}")
 
     def get_profile(self) -> Dict[str, Any]:
-        """Get authenticated user's profile using the client.
+        """Get authenticated user's profile using OpenID Connect userinfo endpoint.
 
         Returns:
             Dict containing profile information including:
-                - id: LinkedIn member ID
-                - firstName: User's first name
-                - lastName: User's last name
+                - sub: LinkedIn member ID
+                - name: User's full name
+                - given_name: User's first name
+                - family_name: User's last name
+                - email: User's email address
 
         Raises:
             AuthenticationError: If not authenticated
         """
         try:
+            # Use OpenID Connect userinfo endpoint instead of deprecated /v2/me
+            # This endpoint works with openid, profile, email scopes
             response = self.client.get(
-                "me",
-                use_rest_api=False  # Profile endpoint still uses v2 API
+                "userinfo",
+                use_rest_api=False  # Uses v2 base URL: https://api.linkedin.com/v2/userinfo
             )
-            return response.json()
+            profile_data = response.json()
+
+            # Map OpenID Connect fields to expected format for backward compatibility
+            # 'sub' is the LinkedIn member ID in OpenID Connect
+            if 'sub' in profile_data and 'id' not in profile_data:
+                profile_data['id'] = profile_data['sub']
+
+            return profile_data
         except AuthenticationError:
             raise
         except requests.HTTPError as e:

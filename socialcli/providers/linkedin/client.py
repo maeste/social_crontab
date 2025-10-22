@@ -119,7 +119,8 @@ class LinkedInAPIClient:
         headers = {
             'Authorization': f'Bearer {self.access_token}',
             'Content-Type': 'application/json',
-            'X-Restli-Protocol-Version': '2.0.0'
+            'X-Restli-Protocol-Version': '2.0.0',
+            'LinkedIn-Version': '202504'
         }
 
         if additional_headers:

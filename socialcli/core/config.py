@@ -107,28 +107,40 @@ class Config:
         return config
 
     def save(self):
-        """Save configuration to YAML file."""
+        """Save configuration to YAML file, preserving existing fields."""
         if self.config_path is None:
             self.config_path = Path.home() / '.socialcli' / 'config.yaml'
 
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        data = {
-            'default_provider': self.default_provider,
-            'providers': {}
-        }
+        # Load existing config to preserve unknown fields
+        existing_data = {}
+        if self.config_path.exists():
+            with open(self.config_path, 'r') as f:
+                existing_data = yaml.safe_load(f) or {}
+
+        # Update with current values
+        existing_data['default_provider'] = self.default_provider
+
+        if 'providers' not in existing_data:
+            existing_data['providers'] = {}
 
         for name, provider_config in self.providers.items():
-            data['providers'][name] = {
-                'client_id': provider_config.client_id,
-                'client_secret': provider_config.client_secret,
-                'access_token': provider_config.access_token,
-                'refresh_token': provider_config.refresh_token,
-                'token_expiry': provider_config.token_expiry,
-            }
+            # Preserve existing provider fields
+            if name not in existing_data['providers']:
+                existing_data['providers'][name] = {}
+
+            provider_data = existing_data['providers'][name]
+
+            # Update token-related fields
+            provider_data['client_id'] = provider_config.client_id
+            provider_data['client_secret'] = provider_config.client_secret
+            provider_data['access_token'] = provider_config.access_token
+            provider_data['refresh_token'] = provider_config.refresh_token
+            provider_data['token_expiry'] = provider_config.token_expiry
 
         with open(self.config_path, 'w') as f:
-            yaml.dump(data, f, default_flow_style=False)
+            yaml.dump(existing_data, f, default_flow_style=False)
 
     def validate(self):
         """Validate the entire configuration.

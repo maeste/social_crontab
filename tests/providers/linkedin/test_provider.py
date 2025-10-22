@@ -494,20 +494,24 @@ class TestLinkedInProviderGetProfile:
 
     @patch('socialcli.providers.linkedin.client.LinkedInAPIClient.get')
     def test_get_profile_success(self, mock_client_get):
-        """Test successful profile retrieval."""
+        """Test successful profile retrieval using OpenID Connect userinfo endpoint."""
         mock_response = Mock()
         mock_response.json.return_value = {
-            'id': 'test_user_id',
-            'firstName': {'localized': {'en_US': 'John'}},
-            'lastName': {'localized': {'en_US': 'Doe'}}
+            'sub': 'test_user_id',
+            'name': 'John Doe',
+            'given_name': 'John',
+            'family_name': 'Doe',
+            'email': 'john.doe@example.com'
         }
         mock_client_get.return_value = mock_response
 
         provider = LinkedInProvider(access_token="test_token")
         result = provider.get_profile()
 
+        # Verify backward compatibility: 'sub' is mapped to 'id'
         assert result['id'] == 'test_user_id'
-        mock_client_get.assert_called_once_with('me', use_rest_api=False)
+        assert result['sub'] == 'test_user_id'
+        mock_client_get.assert_called_once_with('userinfo', use_rest_api=False)
 
     @patch('socialcli.providers.linkedin.client.LinkedInAPIClient.get')
     def test_get_profile_failure_raises_error(self, mock_client_get):

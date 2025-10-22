@@ -66,7 +66,15 @@ class CallbackHandler(BaseHTTPRequestHandler):
 @click.version_option()
 def cli():
     """SocialCLI - Manage social media posts from the command line."""
-    pass
+    # Configure logging
+    import logging
+    import os
+    log_level = os.environ.get('SOCIALCLI_LOG_LEVEL', 'INFO').upper()
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        force=True
+    )
 
 
 @cli.command()
@@ -258,7 +266,36 @@ def post(file, provider):
 
         click.echo(f"Publishing to {file_provider}...")
 
-        result = linkedin.post(content)
+        # Upload media files if present
+        media_files = parser.metadata.get('media', [])
+        media_ids = []
+        if media_files:
+            click.echo(f"Uploading {len(media_files)} media file(s)...")
+            for media_file in media_files:
+                try:
+                    # Handle relative paths - assume relative to post file directory
+                    media_path = Path(media_file)
+                    if not media_path.is_absolute():
+                        media_path = Path(file).parent / media_file
+
+                    if not media_path.exists():
+                        click.echo(f"Warning: Media file not found: {media_path}", err=True)
+                        continue
+
+                    click.echo(f"  Uploading: {media_path.name}")
+                    media_urn = linkedin.upload_media(str(media_path))
+                    media_ids.append(media_urn)
+                    click.echo(f"  ✓ Uploaded: {media_urn}")
+                except Exception as e:
+                    click.echo(f"  Error uploading {media_file}: {e}", err=True)
+                    # Continue with other media files
+
+        # Post with uploaded media
+        kwargs = {}
+        if media_ids:
+            kwargs['media_ids'] = media_ids
+
+        result = linkedin.post(content, **kwargs)
 
         click.echo(f"✓ Post published successfully!")
         if 'id' in result:
