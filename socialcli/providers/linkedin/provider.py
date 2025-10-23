@@ -144,19 +144,32 @@ class LinkedInProvider(SocialProvider):
             if media_ids:
                 num_media = len(media_ids)
                 logger.info(f"Attaching {num_media} media item(s)")
-                
-                if num_media >= 2:
+
+                # Check if first media is a document (different format required)
+                is_document = media_ids[0].startswith('urn:li:document:')
+
+                if is_document and num_media == 1:
+                    # Document: requires title field
+                    # Extract filename from kwargs if provided, otherwise use generic title
+                    document_title = kwargs.get('media_titles', ['Document'])[0] if 'media_titles' in kwargs else 'Document'
+                    post_data["content"] = {
+                        "media": {
+                            "title": document_title,
+                            "id": media_ids[0]
+                        }
+                    }
+                elif num_media >= 2:
                     # Multiple images: use multiImage format (2-20 images)
                     post_data["content"] = {
                         "multiImage": {
                             "images": [
-                                {"id": media_id} 
+                                {"id": media_id}
                                 for media_id in media_ids[:20]  # LinkedIn supports up to 20
                             ]
                         }
                     }
                 else:
-                    # Single image: simple media format with just ID
+                    # Single image/video: simple media format with just ID
                     post_data["content"] = {
                         "media": {
                             "id": media_ids[0]
@@ -317,7 +330,7 @@ class LinkedInProvider(SocialProvider):
             file_path: Path to media file
 
         Returns:
-            Media type: 'image' or 'video'
+            Media type: 'image', 'video', or 'document'
 
         Raises:
             UploadError: If file type is unsupported
@@ -335,6 +348,8 @@ class LinkedInProvider(SocialProvider):
                 return 'image'
             elif ext in ['.mp4', '.mov', '.avi', '.wmv', '.flv', '.webm', '.mkv']:
                 return 'video'
+            elif ext in ['.pdf', '.doc', '.docx', '.ppt', '.pptx']:
+                return 'document'
             else:
                 raise UploadError(f"Unsupported file type: {ext}")
 
@@ -343,6 +358,11 @@ class LinkedInProvider(SocialProvider):
             return 'image'
         elif mime_type.startswith('video/'):
             return 'video'
+        elif mime_type in ['application/pdf', 'application/msword',
+                          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                          'application/vnd.ms-powerpoint',
+                          'application/vnd.openxmlformats-officedocument.presentationml.presentation']:
+            return 'document'
         else:
             raise UploadError(f"Unsupported media type: {mime_type}")
 
@@ -363,13 +383,20 @@ class LinkedInProvider(SocialProvider):
             AuthenticationError: If not authenticated
             UploadError: If upload fails or file type is unsupported
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         if not self._person_urn:
             self.login()
 
         # Detect media type
         media_type = self._detect_media_type(file_path)
 
-        # Select appropriate recipe based on media type
+        # Route documents to document upload API
+        if media_type == 'document':
+            return self.upload_document(file_path)
+
+        # Select appropriate recipe based on media type (image/video)
         if media_type == 'image':
             recipe = "urn:li:digitalmediaRecipe:feedshare-image"
         else:  # video
@@ -391,11 +418,18 @@ class LinkedInProvider(SocialProvider):
 
         try:
             # Register upload with v2 API
+            logger.debug(f"Registering upload for file: {file_path}")
+            logger.debug(f"Registration payload: {register_data}")
+
             response = self.client.post(
                 "assets?action=registerUpload",
                 use_rest_api=False,  # Use v2 API for assets
                 json=register_data
             )
+
+            logger.debug(f"Registration response status: {response.status_code}")
+            logger.debug(f"Registration response headers: {dict(response.headers)}")
+            logger.debug(f"Registration response body: {response.text}")
 
             upload_info = response.json()
 
@@ -404,6 +438,8 @@ class LinkedInProvider(SocialProvider):
             ]['uploadUrl']
 
             asset_urn = upload_info['value']['asset']
+            logger.debug(f"Upload URL: {upload_url}")
+            logger.debug(f"Asset URN: {asset_urn}")
 
             # Upload file directly to LinkedIn's upload URL
             # Get file size for Content-Length header
@@ -421,11 +457,19 @@ class LinkedInProvider(SocialProvider):
                     if mime_type:
                         headers['Content-Type'] = mime_type
 
+                logger.debug(f"Uploading file to LinkedIn, size: {file_size} bytes")
+                logger.debug(f"Upload headers: {headers}")
+
                 upload_response = requests.put(
                     upload_url,
                     data=f,
                     headers=headers
                 )
+
+                logger.debug(f"Upload response status: {upload_response.status_code}")
+                logger.debug(f"Upload response headers: {dict(upload_response.headers)}")
+                logger.debug(f"Upload response body: {upload_response.text}")
+
                 upload_response.raise_for_status()
 
             # Convert digitalmediaAsset URN to image/video URN
@@ -438,18 +482,130 @@ class LinkedInProvider(SocialProvider):
                 else:
                     media_urn = f"urn:li:video:{asset_id}"
                 return media_urn
-            
+
             # Fallback: return asset URN as-is
             return asset_urn
 
         except AuthenticationError:
             raise
         except FileNotFoundError as e:
+            logger.error(f"File not found error: {e}", exc_info=True)
             raise UploadError(f"File not found: {str(e)}")
         except requests.HTTPError as e:
+            logger.error(f"HTTP error during upload: {e}", exc_info=True)
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Error response status: {e.response.status_code}")
+                logger.error(f"Error response headers: {dict(e.response.headers)}")
+                logger.error(f"Error response body: {e.response.text}")
             raise UploadError(f"Upload failed: {str(e)}")
         except Exception as e:
+            logger.error(f"Unexpected error during upload: {e}", exc_info=True)
             raise UploadError(f"Failed to upload media: {str(e)}")
+
+    def upload_document(self, file_path: str) -> str:
+        """Upload document (PDF, DOC, PPT, etc.) to LinkedIn using Documents API.
+
+        Supports documents up to 100MB and 300 pages.
+        Uses LinkedIn's Documents API with two-step upload process.
+
+        Args:
+            file_path: Path to document file
+
+        Returns:
+            Document URN for use in posts (urn:li:document:xxx)
+
+        Raises:
+            AuthenticationError: If not authenticated
+            UploadError: If upload fails or file is invalid
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if not self._person_urn:
+            self.login()
+
+        # Validate file
+        if not os.path.exists(file_path):
+            raise UploadError(f"File not found: {file_path}")
+
+        file_size = os.path.getsize(file_path)
+        max_size = 100 * 1024 * 1024  # 100MB
+
+        if file_size > max_size:
+            raise UploadError(f"File too large: {file_size} bytes (max: {max_size})")
+
+        logger.debug(f"Uploading document: {file_path} ({file_size} bytes)")
+
+        try:
+            # Step 1: Initialize document upload
+            init_data = {
+                "initializeUploadRequest": {
+                    "owner": self._person_urn
+                }
+            }
+
+            logger.debug(f"Initializing document upload with payload: {init_data}")
+
+            # Use /rest base URL (not /v2) with required headers
+            init_response = self.client.post(
+                "documents?action=initializeUpload",
+                base_url="https://api.linkedin.com/rest",
+                json=init_data,
+                headers={
+                    "Linkedin-Version": "202509",
+                    "X-Restli-Protocol-Version": "2.0.0"
+                }
+            )
+
+            logger.debug(f"Initialize response status: {init_response.status_code}")
+            logger.debug(f"Initialize response headers: {dict(init_response.headers)}")
+            logger.debug(f"Initialize response body: {init_response.text}")
+
+            init_result = init_response.json()
+            upload_url = init_result['value']['uploadUrl']
+            document_urn = init_result['value']['document']
+
+            logger.debug(f"Upload URL: {upload_url}")
+            logger.debug(f"Document URN: {document_urn}")
+
+            # Step 2: Upload file to the provided URL
+            with open(file_path, 'rb') as f:
+                headers = {
+                    'Authorization': f'Bearer {self.client.access_token}'
+                }
+
+                logger.debug(f"Uploading file to LinkedIn, size: {file_size} bytes")
+
+                upload_response = requests.put(
+                    upload_url,
+                    data=f,
+                    headers=headers
+                )
+
+                logger.debug(f"Upload response status: {upload_response.status_code}")
+                logger.debug(f"Upload response headers: {dict(upload_response.headers)}")
+                logger.debug(f"Upload response body: {upload_response.text}")
+
+                upload_response.raise_for_status()
+
+            logger.info(f"Document uploaded successfully: {document_urn}")
+            return document_urn
+
+        except AuthenticationError:
+            raise
+        except FileNotFoundError as e:
+            logger.error(f"File not found error: {e}", exc_info=True)
+            raise UploadError(f"File not found: {str(e)}")
+        except requests.HTTPError as e:
+            logger.error(f"HTTP error during document upload: {e}", exc_info=True)
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Error response status: {e.response.status_code}")
+                logger.error(f"Error response headers: {dict(e.response.headers)}")
+                logger.error(f"Error response body: {e.response.text}")
+            raise UploadError(f"Document upload failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during document upload: {e}", exc_info=True)
+            raise UploadError(f"Failed to upload document: {str(e)}")
 
     def get_profile(self) -> Dict[str, Any]:
         """Get authenticated user's profile using OpenID Connect userinfo endpoint.
@@ -486,3 +642,56 @@ class LinkedInProvider(SocialProvider):
             raise AuthenticationError(f"Failed to get profile: {str(e)}")
         except Exception as e:
             raise AuthenticationError(f"Unexpected error getting profile: {str(e)}")
+
+    def get_post(self, post_urn: str) -> Dict[str, Any]:
+        """Get a specific post by URN to check its status.
+
+        Args:
+            post_urn: Post URN (e.g., 'urn:li:share:7387174250509406208')
+
+        Returns:
+            Dict containing post details including status, content, media, etc.
+
+        Raises:
+            AuthenticationError: If not authenticated
+            Exception: If post retrieval fails
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if not self._person_urn:
+            self.login()
+
+        try:
+            # URL encode the URN for the API path
+            from urllib.parse import quote
+            encoded_urn = quote(post_urn, safe='')
+
+            logger.debug(f"Retrieving post: {post_urn}")
+            logger.debug(f"Encoded URN: {encoded_urn}")
+
+            # Use REST API to get the post
+            response = self.client.get(
+                f"posts/{encoded_urn}",
+                use_rest_api=True
+            )
+
+            logger.debug(f"Get post response status: {response.status_code}")
+            logger.debug(f"Get post response headers: {dict(response.headers)}")
+            logger.debug(f"Get post response body: {response.text}")
+
+            post_data = response.json()
+            return post_data
+
+        except AuthenticationError:
+            raise
+        except requests.HTTPError as e:
+            logger.error(f"HTTP error retrieving post: {e}", exc_info=True)
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Error response status: {e.response.status_code}")
+                logger.error(f"Error response headers: {dict(e.response.headers)}")
+                logger.error(f"Error response body: {e.response.text}")
+            raise Exception(f"Failed to retrieve post: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving post: {e}", exc_info=True)
+            raise Exception(f"Failed to retrieve post: {str(e)}")

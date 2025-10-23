@@ -18,7 +18,10 @@
       "mcp__serena__list_dir",
       "mcp__serena__replace_symbol_body",
       "Read(//home/maeste/.claude/skills/socialcli-post/**)",
-      "mcp__context7__resolve-library-id"
+      "mcp__context7__resolve-library-id",
+      "WebFetch(domain:marpit.marp.app)",
+      "Read(//home/maeste/carousels/**)",
+      "mcp__serena__insert_after_symbol"
     ],
     "deny": [],
     "ask": []

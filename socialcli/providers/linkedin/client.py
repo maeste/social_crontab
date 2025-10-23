@@ -167,6 +167,7 @@ class LinkedInAPIClient:
         method: str,
         endpoint: str,
         use_rest_api: bool = False,
+        base_url: Optional[str] = None,
         json: Optional[Dict[str, Any]] = None,
         data: Optional[Union[bytes, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -179,6 +180,7 @@ class LinkedInAPIClient:
             method: HTTP method (GET, POST, PUT, DELETE)
             endpoint: API endpoint path (without base URL)
             use_rest_api: Use REST API base URL instead of v2 (default False)
+            base_url: Custom base URL (overrides use_rest_api if provided)
             json: JSON payload for request body
             data: Raw data for request body
             headers: Additional headers to include
@@ -196,8 +198,11 @@ class LinkedInAPIClient:
         self.rate_limiter.wait_if_needed()
 
         # Build full URL
-        base_url = self.API_REST_BASE if use_rest_api else self.API_BASE
-        url = f"{base_url}/{endpoint.lstrip('/')}"
+        if base_url:
+            url = f"{base_url}/{endpoint.lstrip('/')}"
+        else:
+            api_base = self.API_REST_BASE if use_rest_api else self.API_BASE
+            url = f"{api_base}/{endpoint.lstrip('/')}"
 
         # Build headers
         request_headers = self._get_headers(headers)

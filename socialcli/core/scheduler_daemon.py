@@ -118,32 +118,41 @@ class SchedulerDaemon:
             provider = self._get_provider(provider_name)
 
             # Upload media files if present
+            # All-or-nothing policy: if any media upload fails, the entire post fails
             media_ids = []
+            media_titles = []
             if media_files:
                 logger.info(f"Uploading {len(media_files)} media file(s)")
                 for media_file in media_files:
-                    try:
-                        # Handle relative paths - assume relative to post file directory
-                        media_path = Path(media_file)
-                        if not media_path.is_absolute():
-                            media_path = post_path.parent / media_file
-                        
-                        if not media_path.exists():
-                            logger.warning(f"Media file not found: {media_path}")
-                            continue
-                        
-                        logger.info(f"Uploading media: {media_path}")
-                        media_urn = provider.upload_media(str(media_path))
-                        media_ids.append(media_urn)
-                        logger.info(f"Media uploaded successfully: {media_urn}")
-                    except Exception as e:
-                        logger.error(f"Failed to upload media {media_file}: {e}")
-                        # Continue with other media files
+                    # Handle relative paths - assume relative to post file directory
+                    media_path = Path(media_file)
+                    if not media_path.is_absolute():
+                        media_path = post_path.parent / media_file
+
+                    # Fail immediately if media file doesn't exist
+                    if not media_path.exists():
+                        error_msg = f"Media file not found: {media_path}"
+                        logger.error(error_msg)
+                        raise FileNotFoundError(error_msg)
+
+                    # Upload media - any exception will fail the entire post
+                    logger.info(f"Uploading media: {media_path}")
+                    media_urn = provider.upload_media(str(media_path))
+                    media_ids.append(media_urn)
+                    media_titles.append(media_path.name)  # Store filename for documents
+                    logger.info(f"Media uploaded successfully: {media_urn}")
+
+                # Verify all media uploaded successfully
+                if len(media_ids) != len(media_files):
+                    error_msg = f"Media upload incomplete: expected {len(media_files)}, got {len(media_ids)}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
 
             # Execute the post with uploaded media
             kwargs = {}
             if media_ids:
                 kwargs['media_ids'] = media_ids
+                kwargs['media_titles'] = media_titles  # Pass titles for documents
 
             result = provider.post(
                 content=parser.content,
